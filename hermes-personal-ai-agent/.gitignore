@@ -1,0 +1,39 @@
+# ===== Secrets & local env =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+vault-data/
+
+# ===== Python / backend =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ===== Node / frontend =====
+node_modules/
+.next/
+out/
+.turbo/
+.vercel/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# ===== Docker / volumes =====
+docker/nginx/conf.d/*.local
+
+# ===== OS / editor =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

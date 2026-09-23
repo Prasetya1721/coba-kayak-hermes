@@ -1,0 +1,16 @@
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "B", "ASYNC"]
+ignore = [
+    "E501",
+    # FastAPI uses Depends() in argument defaults by design.
+    "B008",
+    # Tests intentionally assert on broad exceptions for crypto/tag failures.
+    "B017",
+]
+
+[lint.per-file-ignores]
+"alembic/versions/*" = ["E", "F"]
+"tests/*" = ["B011"]
