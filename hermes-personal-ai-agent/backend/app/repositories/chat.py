@@ -14,6 +14,15 @@ from app.repositories.base import BaseRepository
 class ChatSessionRepository(BaseRepository[ChatSession]):
     model = ChatSession
 
+    async def get_owned(
+        self, session_id: uuid.UUID, user_id: uuid.UUID
+    ) -> ChatSession | None:
+        stmt = select(ChatSession).where(
+            ChatSession.id == session_id,
+            ChatSession.user_id == user_id,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def get_or_create(
         self,
         *,
@@ -26,6 +35,7 @@ class ChatSessionRepository(BaseRepository[ChatSession]):
             .where(
                 ChatSession.platform == platform,
                 ChatSession.platform_chat_id == platform_chat_id,
+                ChatSession.user_id == user_id,
             )
             .order_by(ChatSession.created_at.desc())
             .limit(1)

@@ -106,9 +106,12 @@ Anda bisa menonaktifkan sementara (tombol daya) atau menghapusnya kapan saja.
 
 ---
 
-## 8. Chat dari Dashboard
+## 8. Chat & Riwayat dari Dashboard
 
-Menu **Chat** memungkinkan Anda mengobrol langsung dari browser. Perhatikan:
+Menu **Chat** memungkinkan Anda mengobrol langsung dari browser. Menu **Riwayat**
+menampilkan semua percakapan (Telegram, WhatsApp, dan web) dengan tombol
+**Lanjutkan di Chat** untuk membuka kembali sesi lama. Anda juga bisa menghapus
+sesi per sesi. Perhatikan:
 
 - Bila Anda menulis data sensitif (kartu, NIK, password), Hermes otomatis
   **menyensornya** dan menampilkan peringatan.

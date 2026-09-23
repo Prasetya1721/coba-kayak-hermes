@@ -4,9 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, Loader2, Send, ShieldAlert, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Badge, Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/input";
-import { Badge } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api/client";
 import { useAuth } from "@/context/AuthContext";
 import type { ChatMessage } from "@/lib/types";
@@ -36,6 +35,25 @@ export default function ChatPage() {
     if (tpl) {
       setInput(tpl);
       sessionStorage.removeItem("hermes.template");
+    }
+    const sid = sessionStorage.getItem("hermes.session_id");
+    if (sid) {
+      setSessionId(sid);
+      setMessages([WELCOME]);
+      void (async () => {
+        try {
+          const history = await api.getHistory(sid);
+          if (history.length > 0) {
+            setMessages([
+              WELCOME,
+              ...history.map((m) => ({ role: m.role, content: m.content })),
+            ]);
+          }
+        } catch {
+          // biarkan chat mulai dari sesi baru bila riwayat gagal dimuat
+        }
+      })();
+      sessionStorage.removeItem("hermes.session_id");
     }
   }, []);
 

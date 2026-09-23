@@ -1,0 +1,9 @@
+# Enforce LF line endings everywhere so Windows checkouts don't flip files.
+* text=auto eol=lf
+
+# Scripts stay executable on Unix checkouts.
+*.sh text eol=lf
+
+# Binary-ish files that must never be touched.
+*.pem -text
+*.key -text

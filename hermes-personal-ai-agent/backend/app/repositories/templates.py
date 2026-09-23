@@ -28,6 +28,13 @@ class TemplateRepository(BaseRepository[CommandTemplate]):
         stmt = select(CommandTemplate).where(CommandTemplate.is_builtin.is_(True))
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def delete_by_user(self, user_id: uuid.UUID) -> int:
+        """Delete only the user's own templates (built-ins are preserved)."""
+        result = await self.session.execute(
+            delete(CommandTemplate).where(CommandTemplate.user_id == user_id)
+        )
+        return result.rowcount or 0
+
     async def get_owned(
         self, template_id: uuid.UUID, user_id: uuid.UUID
     ) -> CommandTemplate | None:

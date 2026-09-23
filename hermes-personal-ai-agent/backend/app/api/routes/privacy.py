@@ -37,7 +37,9 @@ async def export_data(
 ):
     """Export everything held about the user in a portable JSON document."""
     profile = await ProfileRepository(db).get_by_user(user.id)
-    templates = await TemplateRepository(db).list_for_user(user.id)
+    all_templates = await TemplateRepository(db).list_for_user(user.id)
+    # Export only the user's own templates; built-ins can be re-seeded anytime.
+    templates = [t for t in all_templates if not t.is_builtin]
     notifications = await NotificationRepository(db).list_for_user(user.id)
     sessions = await ChatSessionRepository(db).list_by_user(user.id)
 

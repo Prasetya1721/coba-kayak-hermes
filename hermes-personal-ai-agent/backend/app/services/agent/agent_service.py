@@ -28,11 +28,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.db.models import ChatSession
 from app.middleware.scrubbing import scrub_text_detailed
 from app.repositories.chat import ChatLogRepository, ChatSessionRepository
 from app.repositories.templates import NotificationRepository
 from app.services.agent.llm import build_chat_model, llm_is_configured
-from app.services.agent.tool_registry import build_agent_tools
+from app.services.agent.tool_registry import build_agent_tools, set_credential_resolver
 
 log = get_logger(__name__)
 
@@ -49,6 +50,10 @@ Aturan:
   sensitif sudah disensor sebelum sampai ke kamu.
 - Transparan: bila diminta, ingatkan pengguna bahwa kamu adalah AI.
 """
+
+
+class SessionNotFoundError(ValueError):
+    """Raised when a requested chat session does not belong to the user."""
 
 
 @dataclass
@@ -74,11 +79,19 @@ class AgentService:
         platform: str,
         platform_chat_id: str,
         message: str,
+        session_id: uuid.UUID | None = None,
+        credential_resolver=None,
     ) -> tuple[uuid.UUID, AgentResult]:
         """Process one inbound message end-to-end; returns (session_id, result)."""
-        session_row = await self.sessions.get_or_create(
-            user_id=user_id, platform=platform, platform_chat_id=platform_chat_id
-        )
+        session_row: ChatSession | None = None
+        if session_id is not None:
+            session_row = await self.sessions.get_owned(session_id, user_id)
+            if session_row is None:
+                raise SessionNotFoundError(str(session_id))
+        if session_row is None:
+            session_row = await self.sessions.get_or_create(
+                user_id=user_id, platform=platform, platform_chat_id=platform_chat_id
+            )
 
         scrub = scrub_text_detailed(message)
         await self.logs.append(
@@ -92,17 +105,22 @@ class AgentService:
             session_row.id, limit=settings.short_term_memory_size
         )
 
-        if not llm_is_configured():
-            result = AgentResult(
-                reply=(
-                    "Asisten belum dikonfigurasi: API key model belum diisi. "
-                    "Set OPENAI_API_KEY atau ANTHROPIC_API_KEY di file .env."
-                ),
-                scrubbed_input=scrub.changed,
-                detections=scrub.detections,
-            )
-        else:
-            result = await self._run_agent(history)
+        if credential_resolver is not None:
+            set_credential_resolver(credential_resolver)
+        try:
+            if not llm_is_configured():
+                result = AgentResult(
+                    reply=(
+                        "Asisten belum dikonfigurasi: API key model belum diisi. "
+                        "Set OPENAI_API_KEY atau ANTHROPIC_API_KEY di file .env."
+                    ),
+                    scrubbed_input=scrub.changed,
+                    detections=scrub.detections,
+                )
+            else:
+                result = await self._run_agent(history)
+        finally:
+            set_credential_resolver(None)
 
         await self.logs.append(session_row.id, "assistant", result.reply)
 

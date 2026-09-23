@@ -1,11 +1,15 @@
 """Auth routes: register, login, refresh, me, profile."""
 
-from __future__ import annotations
+# NOTE: no `from __future__ import annotations` here. The @limiter.limit
+# decorator wraps these endpoints; with PEP 563 the annotations become strings
+# that FastAPI cannot resolve in the wrapper's namespace (would break param
+# injection the same way it did for webhooks).
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.rate_limit import AUTH_LIMIT, limiter
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas import (
@@ -23,17 +27,26 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserResponse, status_code=201)
-async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit(AUTH_LIMIT)
+async def register(
+    request: Request, payload: RegisterRequest, db: AsyncSession = Depends(get_db)
+):
     return await AuthService(db).register(payload)
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit(AUTH_LIMIT)
+async def login(
+    request: Request, payload: LoginRequest, db: AsyncSession = Depends(get_db)
+):
     return await AuthService(db).login(payload)
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit(AUTH_LIMIT)
+async def refresh(
+    request: Request, payload: RefreshRequest, db: AsyncSession = Depends(get_db)
+):
     return await AuthService(db).refresh(payload.refresh_token)
 
 

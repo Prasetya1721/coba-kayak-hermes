@@ -38,6 +38,13 @@ class SSHInput(BaseModel):
     username: str = Field(description="Username SSH.")
     command: str = Field(description="Perintah yang akan dijalankan (harus di whitelist).")
     port: int = Field(default=22, description="Port SSH.")
+    credential_ref: str | None = Field(
+        default=None,
+        description=(
+            "Nama kredensial SSH tersimpan (mis. 'ssh_rumah') bila password/private "
+            "key tidak diberikan inline."
+        ),
+    )
 
 
 class GithubInput(BaseModel):
@@ -76,8 +83,60 @@ async def _web_search_impl(query: str) -> str:
     return web_search.format_results(results)
 
 
-async def _ssh_impl(host: str, username: str, command: str, port: int = 22) -> str:
-    return await device.execute_ssh(host=host, username=username, command=command, port=port)
+async def _ssh_impl(
+    host: str,
+    username: str,
+    command: str,
+    port: int = 22,
+    credential_ref: str | None = None,
+) -> str:
+    password: str | None = None
+    private_key: str | None = None
+    if credential_ref:
+        resolver = _current_credential_resolver()
+        if resolver is None:
+            return (
+                "credential_ref tidak didukung pada konteks ini. "
+                "Minta pengguna menyambungkan SSH dengan password inline "
+                "atau jalankan ulang dari webhook/chat."
+            )
+        try:
+            secret = await resolver(credential_ref)
+        except Exception as exc:  # noqa: BLE001
+            return f"Kredensial tidak dapat dipakai: {exc}"
+        if secret.lstrip().startswith("-----BEGIN"):
+            private_key = secret
+        else:
+            password = secret
+    return await device.execute_ssh(
+        host=host,
+        username=username,
+        command=command,
+        port=port,
+        password=password,
+        private_key=private_key,
+    )
+
+
+# --- Context-local credential resolver (set per conversation turn) ------------
+# The agent runs with user context, but LangChain tools are plain coroutines.
+# This module-level hook is assigned by `AgentService` before the tool loop so
+# tools can resolve credentials without threading DB sessions through every
+# tool signature.
+
+from collections.abc import Awaitable, Callable  # noqa: E402
+
+_CredentialResolver = Callable[[str], Awaitable[str]]
+_resolver: _CredentialResolver | None = None
+
+
+def set_credential_resolver(fn: _CredentialResolver | None) -> None:
+    global _resolver
+    _resolver = fn
+
+
+def _current_credential_resolver() -> _CredentialResolver | None:
+    return _resolver
 
 
 async def _github_impl(

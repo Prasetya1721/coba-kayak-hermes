@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.db.models import User
 from app.services.agent.agent_service import AgentService
+from app.services.credentials import resolve_user_credential
 
 log = get_logger(__name__)
 
@@ -35,11 +36,15 @@ async def process_inbound(
         log.warning("inbound_no_owner", platform=platform)
         return "Belum ada pengguna terdaftar. Silakan daftar di dashboard terlebih dahulu."
 
+    async def _resolve(service_name: str) -> str:
+        return await resolve_user_credential(db, owner.id, service_name)
+
     agent = AgentService(db)
     _, result = await agent.handle_message(
         user_id=owner.id,
         platform=platform,
         platform_chat_id=platform_chat_id,
         message=text,
+        credential_resolver=_resolve,
     )
     return result.reply

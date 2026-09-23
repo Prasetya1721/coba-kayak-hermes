@@ -70,6 +70,8 @@ Mengembalikan user yang sedang login.
 
 ### POST `/api/chat/message`
 Kirim pesan ke agen (kanal web). Data sensitif disensor sebelum diproses.
+Sertakan `session_id` untuk melanjutkan sesi yang sudah ada (milik Anda);
+bila diisi dengan sesi yang tidak dikenal/tidak dimiliki, responsnya `404`.
 
 ```json
 { "message": "Cek uptime example.com", "session_id": null }
@@ -180,15 +182,17 @@ Body POST:
 ## Webhooks (publik, tanpa JWT)
 
 ### POST `/api/webhooks/telegram`
-Menerima update Telegram. Header `X-Telegram-Bot-Api-Secret-Token` diverifikasi
-bila `TELEGRAM_WEBHOOK_SECRET` diset.
+Menerima update Telegram. Header `X-Telegram-Bot-Api-Secret-Token` **wajib**
+cocok dengan `TELEGRAM_WEBHOOK_SECRET` — bila secret belum dikonfigurasi,
+semua inbound ditolak (fail closed).
 
 ### GET `/api/webhooks/telegram/setup`
 Menampilkan URL `setWebhook` yang siap dipakai.
 
 ### POST `/api/webhooks/whatsapp`
-Menerima payload Twilio (form) atau Baileys (JSON). Signature Twilio diverifikasi
-bila `TWILIO_AUTH_TOKEN` diset.
+- Mode `baileys`: menerima JSON `{ "from": "...", "text": "..." }`.
+- Mode lain: menerima form Twilio. Bila provider `twilio`, header
+  `X-Twilio-Signature` **wajib** ada dan valid — tanpa signature ditolak 403.
 
 Keduanya mengembalikan `200` cepat; balasan agen dikirim asinkron ke platform.
 
@@ -196,7 +200,8 @@ Keduanya mengembalikan `200` cepat; balasan agen dikirim asinkron ke platform.
 
 ## Rate Limiting
 
-- API: `RATE_LIMIT_PER_MINUTE` (default 60/menit) via slowapi.
+- API umum: `RATE_LIMIT_PER_MINUTE` (default 60/menit) via slowapi.
+- Auth (register/login/refresh): 5/menit per IP.
 - Webhook: `RATE_LIMIT_WEBHOOK_PER_MINUTE` (default 120/menit).
 - Nginx menambah batas `api_limit` (30 r/s) dan `webhook_limit` (60 r/s).
 
