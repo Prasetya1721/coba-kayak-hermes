@@ -54,9 +54,12 @@ class Settings(BaseSettings):
     vault_required: bool = False
 
     # --- AI ---
+    # provider "openai" also covers any OpenAI-compatible gateway (set OPENAI_BASE_URL).
     llm_provider: Literal["openai", "anthropic"] = "openai"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
+    # Custom OpenAI-compatible endpoint, e.g. https://modelrouter.id/v1
+    openai_base_url: str = ""
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-3-5-sonnet-latest"
     llm_temperature: float = 0.2

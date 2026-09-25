@@ -17,12 +17,16 @@ def build_chat_model(*, streaming: bool = False) -> BaseChatModel:
             raise LLMConfigError("OPENAI_API_KEY belum dikonfigurasi.")
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(
-            model=settings.openai_model,
-            api_key=settings.openai_api_key,
-            temperature=settings.llm_temperature,
-            streaming=streaming,
-        )
+        kwargs: dict = {
+            "model": settings.openai_model,
+            "api_key": settings.openai_api_key,
+            "temperature": settings.llm_temperature,
+            "streaming": streaming,
+        }
+        # Custom OpenAI-compatible gateway (e.g. https://modelrouter.id/v1).
+        if settings.openai_base_url:
+            kwargs["base_url"] = settings.openai_base_url
+        return ChatOpenAI(**kwargs)
 
     if settings.llm_provider == "anthropic":
         if not settings.anthropic_api_key:
