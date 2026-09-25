@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 const WELCOME: ChatMessage = {
   role: "assistant",
   content:
-    "Halo! Saya Hermes, asisten pribadi Anda. Tanyakan apa saja, minta cek server, deploy web, atau buat pengingat. Bagaimana saya bisa membantu?",
+    "Hai! Stella di sini 😊 ada yang bisa dibantu?",
 };
 
 export default function ChatPage() {
