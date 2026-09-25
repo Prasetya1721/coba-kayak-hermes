@@ -31,7 +31,9 @@ async def create_memory(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        saved = await MemoryService(db).save(user.id, payload.key, payload.value)
+        saved = await MemoryService(db).save(
+            user.id, payload.key, payload.value, scope=payload.scope
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await db.commit()

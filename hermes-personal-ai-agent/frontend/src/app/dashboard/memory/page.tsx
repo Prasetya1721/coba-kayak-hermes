@@ -17,8 +17,17 @@ const KEY_LABELS: Record<string, string> = {
   pekerjaan: "Pekerjaan",
   preferensi: "Kesukaan",
   perangkat: "Perangkat",
+  proyek: "Proyek",
+  kode: "Preferensi kode",
   catatan: "Catatan",
 };
+
+function scopeLabel(scope: string | undefined): string | null {
+  if (!scope || scope === "global") return null;
+  if (scope === "kode") return "Kode";
+  if (scope.startsWith("proyek:")) return `Proyek ${scope.slice(7).toUpperCase()}`;
+  return scope;
+}
 
 export default function MemoriesPage() {
   const [items, setItems] = useState<MemoryItem[]>([]);
@@ -136,9 +145,16 @@ export default function MemoriesPage() {
               <CardHeader>
                 <div className="flex items-start justify-between gap-2">
                   <Brain className="h-5 w-5 text-primary" />
-                  <Badge className="border-primary/30 bg-primary/10 text-primary">
-                    {KEY_LABELS[m.key] ?? m.key}
-                  </Badge>
+                  <div className="flex gap-1">
+                    {scopeLabel(m.scope) && (
+                      <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600">
+                        {scopeLabel(m.scope)}
+                      </Badge>
+                    )}
+                    <Badge className="border-primary/30 bg-primary/10 text-primary">
+                      {KEY_LABELS[m.key] ?? m.key}
+                    </Badge>
+                  </div>
                 </div>
                 <CardTitle className="pt-2 text-base">{m.value}</CardTitle>
               </CardHeader>

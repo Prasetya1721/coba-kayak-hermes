@@ -81,5 +81,6 @@ export interface MemoryItem {
   key: string;
   value: string;
   source: string;
+  scope: string;
   updated_at: string | null;
 }

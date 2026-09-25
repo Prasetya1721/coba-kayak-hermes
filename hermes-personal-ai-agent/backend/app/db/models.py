@@ -10,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     LargeBinary,
     String,
     Text,
@@ -197,12 +198,14 @@ class UserMemory(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    # Short label: "nama", "ulang_tahun", "preferensi", "perangkat", ...
+    # Short label: "nama", "ulang_tahun", "preferensi", "proyek", "kode", ...
     key: Mapped[str] = mapped_column(String(50), nullable=False)
     # AES-256-GCM ciphertext of the fact (value never stored in plaintext).
     value_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     # Where it came from: "explicit" (user said "ingat") or "extracted".
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="explicit")
+    # Scope: "global" (all chats), "proyek:<name>", or "kode" (coding prefs).
+    scope: Mapped[str] = mapped_column(String(80), nullable=False, default="global")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -211,6 +214,33 @@ class UserMemory(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="memories")
+
+
+class SessionSummary(Base):
+    """Rolling summary per chat session — the long-term bridge between sessions.
+
+    When a session grows past the short-term window, the oldest messages are
+    compressed into this encrypted summary so the agent stays coherent even
+    weeks later. Newest summary row wins; older ones are kept for audit.
+    """
+
+    __tablename__ = "session_summaries"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # AES-256-GCM ciphertext of the summary text.
+    summary_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # How many log rows were compressed into this summary.
+    messages_covered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class AuditEvent(Base):

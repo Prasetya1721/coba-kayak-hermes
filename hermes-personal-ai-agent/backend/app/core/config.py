@@ -93,6 +93,23 @@ class Settings(BaseSettings):
     ssh_connect_timeout_seconds: int = 10
     ssh_command_timeout_seconds: int = 30
 
+    # --- Repo access (sandboxed file tools) ---
+    # Comma-separated absolute directories the agent may read. Empty = disabled.
+    # Example: REPO_ROOTS=D:\projects\PMS,D:\projects\lain
+    repo_roots: str = ""
+    repo_max_file_bytes: int = 200000
+    repo_max_output_chars: int = 12000
+    repo_max_matches: int = 40
+
+    # --- Code execution (sandboxed, default OFF) ---
+    # The agent can only run code when this is explicitly enabled. Even then:
+    # no shell, interpreter+script allowlist, temp jail dir, hard timeout.
+    code_exec_enabled: bool = False
+    code_exec_timeout_seconds: int = 30
+    code_exec_max_output_chars: int = 8000
+    # Comma-separated: python, node
+    code_exec_languages: str = "python"
+
     # --- Web management ---
     github_token: str = ""
     vercel_token: str = ""
@@ -148,6 +165,25 @@ class Settings(BaseSettings):
     @property
     def ssh_whitelist_list(self) -> list[str]:
         return [c.strip() for c in self.ssh_command_whitelist.split(",") if c.strip()]
+
+    @property
+    def repo_roots_list(self) -> list[str]:
+        import os
+
+        roots = []
+        for r in self.repo_roots.split(","):
+            r = r.strip().strip('"').strip("'")
+            if r:
+                roots.append(os.path.abspath(os.path.expandvars(r)))
+        return roots
+
+    @property
+    def code_exec_languages_list(self) -> list[str]:
+        return [
+            lang.strip().lower()
+            for lang in self.code_exec_languages.split(",")
+            if lang.strip()
+        ]
 
     @property
     def is_production(self) -> bool:

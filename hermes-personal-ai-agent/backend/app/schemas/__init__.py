@@ -201,6 +201,7 @@ class DeleteDataResponse(BaseModel):
 class MemoryCreate(BaseModel):
     key: str = Field(min_length=1, max_length=50)
     value: str = Field(min_length=1, max_length=500)
+    scope: str | None = Field(default=None, max_length=80)
 
 
 class MemoryResponse(BaseModel):
@@ -208,6 +209,7 @@ class MemoryResponse(BaseModel):
     key: str
     value: str
     source: str = "explicit"
+    scope: str = "global"
     updated_at: str | None = None
 
 

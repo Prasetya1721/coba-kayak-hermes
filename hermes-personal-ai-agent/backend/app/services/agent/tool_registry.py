@@ -18,7 +18,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
-from app.services.agent.tools import device, web_management, web_search
+from app.services.agent.tools import code_exec, device, repo, web_management, web_search
 from app.services.agent.tools.notifications import (
     ScheduleError,
     next_run_from_cron,
@@ -84,6 +84,37 @@ class RecallMemoryInput(BaseModel):
         default=None,
         description="Opsional: filter kata kunci untuk mencari ingatan tertentu.",
     )
+
+
+class ReadFileInput(BaseModel):
+    path: str = Field(
+        description="Path file di dalam repo yang diizinkan (relatif thd REPO_ROOTS atau absolut di dalamnya)."
+    )
+
+
+class ListDirInput(BaseModel):
+    path: str = Field(default=".", description="Folder di dalam repo yang diizinkan.")
+
+
+class SearchCodeInput(BaseModel):
+    pattern: str = Field(description="Regex (case-insensitive) yang dicari di kode.")
+    root: str = Field(default=".", description="Folder awal pencarian.")
+    ext: str = Field(
+        default="",
+        description="Filter ekstensi koma-dipisah, mis. '.py,.js'. Kosong = semua file teks.",
+    )
+
+
+class RepoTreeInput(BaseModel):
+    root: str = Field(default=".", description="Folder awal.")
+    depth: int = Field(default=2, ge=1, le=4, description="Kedalaman tree.")
+
+
+class RunCodeInput(BaseModel):
+    language: str = Field(
+        description="Bahasa: python (atau node kalau diizinkan). Sandbox, tanpa shell."
+    )
+    code: str = Field(description="Kode lengkap yang ditulis ke file temp lalu dijalankan.")
 
 
 # --- Tool implementations -----------------------------------------------------
@@ -195,11 +226,55 @@ async def _recall_impl(query: str | None = None) -> str:
     items = await _memory_lister()
     if query:
         q = query.lower()
-        items = [m for m in items if q in m["key"] or q in m["value"].lower()]
+        items = [
+            m
+            for m in items
+            if q in m["key"]
+            or q in m["value"].lower()
+            or q in m.get("scope", "").lower()
+        ]
     if not items:
         return "Aku belum punya ingatan yang cocok."
-    lines = [f"- {m['key']}: {m['value']}" for m in items[:20]]
+    lines = [
+        f"- {m['key']}" + (f" [{m.get('scope')}]" if m.get("scope", "global") != "global" else "") + f": {m['value']}"
+        for m in items[:20]
+    ]
     return "Yang aku ingat:\n" + "\n".join(lines)
+
+
+async def _read_file_impl(path: str) -> str:
+    try:
+        return repo.read_file(path)
+    except repo.RepoAccessError as exc:
+        return f"Nggak bisa baca: {exc}"
+
+
+async def _list_dir_impl(path: str = ".") -> str:
+    try:
+        return repo.list_dir(path)
+    except repo.RepoAccessError as exc:
+        return f"Nggak bisa buka: {exc}"
+
+
+async def _search_code_impl(pattern: str, root: str = ".", ext: str = "") -> str:
+    try:
+        return repo.search_code(pattern, root=root, ext=ext)
+    except repo.RepoAccessError as exc:
+        return f"Nggak bisa cari: {exc}"
+
+
+async def _repo_tree_impl(root: str = ".", depth: int = 2) -> str:
+    try:
+        return repo.summarize_tree(root, depth=depth)
+    except repo.RepoAccessError as exc:
+        return f"Nggak bisa: {exc}"
+
+
+async def _run_code_impl(language: str, code: str) -> str:
+    try:
+        return await code_exec.run_code(language=language, code=code)
+    except code_exec.CodeExecError as exc:
+        return f"Nggak bisa jalanin: {exc}"
 
 
 async def _github_impl(
@@ -328,6 +403,47 @@ def build_agent_tools() -> list[StructuredTool]:
             ),
             args_schema=ScheduleNotificationInput,
         ),
+        StructuredTool.from_function(
+            coroutine=_read_file_impl,
+            name="read_file",
+            description=(
+                "Baca file teks di repo yang diizinkan (REPO_ROOTS). Read-only. "
+                "Kalau belum diaktifkan, minta pengguna set REPO_ROOTS dulu."
+            ),
+            args_schema=ReadFileInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_list_dir_impl,
+            name="list_dir",
+            description="Lihat isi folder di repo yang diizinkan.",
+            args_schema=ListDirInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_search_code_impl,
+            name="search_code",
+            description=(
+                "Cari pola regex di kode repo yang diizinkan (mirip grep). "
+                "Bisa filter ekstensi, mis. '.py,.js'."
+            ),
+            args_schema=SearchCodeInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_repo_tree_impl,
+            name="repo_tree",
+            description="Lihat struktur folder repo (tree ringkas) buat orientasi.",
+            args_schema=RepoTreeInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_run_code_impl,
+            name="run_code",
+            description=(
+                "Jalankan potongan kode kecil (python/node) di sandbox server buat "
+                "testing/debugging: TANPA shell, TANPA akses file/network, timeout "
+                "ketat. MATI secara default — kalau mati, minta pengguna nyalakan "
+                "CODE_EXEC_ENABLED dulu dan jelaskan risikonya dengan jujur."
+            ),
+            args_schema=RunCodeInput,
+        ),
     ]
 
     if settings.github_token:
@@ -367,4 +483,4 @@ def build_agent_tools() -> list[StructuredTool]:
     return tools
 
 
-DANGEROUS_TOOLS = {"execute_ssh", "manage_vercel", "manage_github"}
+DANGEROUS_TOOLS = {"execute_ssh", "manage_vercel", "manage_github", "run_code"}
