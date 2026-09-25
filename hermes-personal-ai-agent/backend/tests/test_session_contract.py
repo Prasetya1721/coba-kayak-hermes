@@ -57,6 +57,7 @@ class TestAgentSessionOwnership:
         service.sessions.get_or_create = AsyncMock()
         service.logs.append = AsyncMock()
         service.logs.recent = AsyncMock(return_value=[])
+        service.memory.recall_block = AsyncMock(return_value="")
 
         from app.services.agent.agent_service import AgentResult
 

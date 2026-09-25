@@ -121,3 +121,41 @@ class TestWebSearchConfig:
         monkeypatch.setattr(web_search.settings, "search_provider", "none")
         with pytest.raises(web_search.WebSearchError):
             await web_search.web_search("apa itu python")
+
+    @pytest.mark.asyncio
+    async def test_duckduckgo_parses_instant_answer(self, monkeypatch):
+        """DuckDuckGo path works without any API key."""
+        import respx
+        from httpx import Response
+
+        from app.services.agent.tools import web_search
+
+        monkeypatch.setattr(web_search.settings, "search_provider", "duckduckgo")
+        payload = {
+            "Heading": "Python",
+            "AbstractText": "Python adalah bahasa pemrograman.",
+            "AbstractURL": "https://python.org",
+            "RelatedTopics": [],
+        }
+        with respx.mock:
+            respx.get("https://api.duckduckgo.com/").mock(
+                return_value=Response(200, json=payload)
+            )
+            respx.post("https://html.duckduckgo.com/html/").mock(
+                return_value=Response(200, text="")
+            )
+            results = await web_search.web_search("apa itu python", limit=3)
+
+        assert len(results) == 1
+        assert results[0]["title"] == "Python"
+        assert "python.org" in results[0]["link"]
+
+    @pytest.mark.asyncio
+    async def test_format_results_renders(self):
+        from app.services.agent.tools import web_search
+
+        out = web_search.format_results(
+            [{"title": "T", "link": "https://x", "snippet": "S"}]
+        )
+        assert "T" in out and "https://x" in out and "S" in out
+        assert web_search.format_results([]) == "Tidak ada hasil pencarian."

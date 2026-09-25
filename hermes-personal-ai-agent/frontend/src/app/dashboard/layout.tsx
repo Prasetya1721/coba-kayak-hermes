@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import {
   Bell,
   Bot,
+  Brain,
   History,
   LayoutDashboard,
   FileCode2,
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/dashboard", label: "Chat", icon: Bot },
   { href: "/dashboard/history", label: "Riwayat", icon: History },
+  { href: "/dashboard/memory", label: "Ingatan", icon: Brain },
   { href: "/dashboard/templates", label: "Template", icon: FileCode2 },
   { href: "/dashboard/notifications", label: "Notifikasi", icon: Bell },
   { href: "/dashboard/onboarding", label: "Onboarding", icon: Sparkles },

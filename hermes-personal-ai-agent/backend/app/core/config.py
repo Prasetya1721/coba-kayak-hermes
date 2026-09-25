@@ -79,7 +79,8 @@ class Settings(BaseSettings):
     baileys_gateway_token: str = ""
 
     # --- Web search ---
-    search_provider: Literal["serpapi", "brave", "none"] = "none"
+    # duckduckgo = gratis tanpa API key; serpapi/brave = berbayar, recall lebih baik.
+    search_provider: Literal["serpapi", "brave", "duckduckgo", "none"] = "none"
     serpapi_api_key: str = ""
     brave_search_api_key: str = ""
 

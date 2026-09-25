@@ -198,6 +198,19 @@ class DeleteDataResponse(BaseModel):
     detail: str
 
 
+class MemoryCreate(BaseModel):
+    key: str = Field(min_length=1, max_length=50)
+    value: str = Field(min_length=1, max_length=500)
+
+
+class MemoryResponse(BaseModel):
+    id: str
+    key: str
+    value: str
+    source: str = "explicit"
+    updated_at: str | None = None
+
+
 class ErrorResponse(BaseModel):
     detail: str
     request_id: str | None = None

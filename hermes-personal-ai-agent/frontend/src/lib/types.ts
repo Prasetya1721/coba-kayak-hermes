@@ -75,3 +75,11 @@ export interface Credential {
   service_name: string;
   created_at: string;
 }
+
+export interface MemoryItem {
+  id: string;
+  key: string;
+  value: string;
+  source: string;
+  updated_at: string | null;
+}

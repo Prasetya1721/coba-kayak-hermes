@@ -58,6 +58,9 @@ class User(Base):
     credentials: Mapped[list["Credential"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    memories: Mapped[list["UserMemory"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Profile(Base):
@@ -178,6 +181,36 @@ class Credential(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="credentials")
+
+
+class UserMemory(Base):
+    """Long-term facts about the user, encrypted at rest (PRD memory permanen).
+
+    Examples: "nama saya Budi", "ulang tahun 5 Mei", "suka kopi tubruk",
+    "punya server di 192.168.1.10". Captured explicitly ("ingat ya ...") or
+    extracted from conversation; recalled at the start of every turn.
+    """
+
+    __tablename__ = "user_memories"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    # Short label: "nama", "ulang_tahun", "preferensi", "perangkat", ...
+    key: Mapped[str] = mapped_column(String(50), nullable=False)
+    # AES-256-GCM ciphertext of the fact (value never stored in plaintext).
+    value_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # Where it came from: "explicit" (user said "ingat") or "extracted".
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="explicit")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="memories")
 
 
 class AuditEvent(Base):

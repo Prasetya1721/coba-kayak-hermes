@@ -72,6 +72,20 @@ class ScheduleNotificationInput(BaseModel):
     )
 
 
+class RememberInput(BaseModel):
+    key: str = Field(
+        description="Label singkat: nama, ulang_tahun, kota, pekerjaan, preferensi, perangkat, catatan."
+    )
+    value: str = Field(description="Fakta yang mau disimpan tentang pengguna.")
+
+
+class RecallMemoryInput(BaseModel):
+    query: str | None = Field(
+        default=None,
+        description="Opsional: filter kata kunci untuk mencari ingatan tertentu.",
+    )
+
+
 # --- Tool implementations -----------------------------------------------------
 
 
@@ -118,11 +132,11 @@ async def _ssh_impl(
     )
 
 
-# --- Context-local credential resolver (set per conversation turn) ------------
+# --- Context-local hooks (set per conversation turn) --------------------------
 # The agent runs with user context, but LangChain tools are plain coroutines.
-# This module-level hook is assigned by `AgentService` before the tool loop so
-# tools can resolve credentials without threading DB sessions through every
-# tool signature.
+# These module-level hooks are assigned by `AgentService` before the tool loop
+# so tools can resolve credentials / memories without threading DB sessions
+# through every tool signature.
 
 from collections.abc import Awaitable, Callable  # noqa: E402
 
@@ -137,6 +151,55 @@ def set_credential_resolver(fn: _CredentialResolver | None) -> None:
 
 def _current_credential_resolver() -> _CredentialResolver | None:
     return _resolver
+
+
+_MemorySaver = Callable[[str, str], Awaitable[dict]]
+_MemoryLister = Callable[[], Awaitable[list]]
+_memory_saver: _MemorySaver | None = None
+_memory_lister: _MemoryLister | None = None
+
+
+def set_memory_service(service, user_id=None) -> None:  # noqa: ANN001, ANN002
+    """Bind the per-turn MemoryService + owner (or None to unbind).
+
+    The user id is captured in closures, so concurrent turns for different
+    users never share state through module globals.
+    """
+    global _memory_saver, _memory_lister
+    if service is None or user_id is None:
+        _memory_saver, _memory_lister = None, None
+        return
+
+    async def _save(key: str, value: str) -> dict:
+        return await service.save(user_id, key, value)
+
+    async def _list() -> list:
+        return await service.list(user_id)
+
+    _memory_saver, _memory_lister = _save, _list
+
+
+async def _remember_impl(key: str, value: str) -> str:
+    if _memory_saver is None:
+        return "Penyimpanan ingatan tidak tersedia pada konteks ini."
+    try:
+        saved = await _memory_saver(key.strip().lower()[:50] or "catatan", value)
+    except Exception as exc:  # noqa: BLE001
+        return f"Gagal menyimpan ingatan: {exc}"
+    return f"Oke, udah aku ingat: {saved['key']} = {saved['value']} 👍"
+
+
+async def _recall_impl(query: str | None = None) -> str:
+    if _memory_lister is None:
+        return "Ingatan tidak tersedia pada konteks ini."
+    items = await _memory_lister()
+    if query:
+        q = query.lower()
+        items = [m for m in items if q in m["key"] or q in m["value"].lower()]
+    if not items:
+        return "Aku belum punya ingatan yang cocok."
+    lines = [f"- {m['key']}: {m['value']}" for m in items[:20]]
+    return "Yang aku ingat:\n" + "\n".join(lines)
 
 
 async def _github_impl(
@@ -230,8 +293,31 @@ def build_agent_tools() -> list[StructuredTool]:
         StructuredTool.from_function(
             coroutine=_web_search_impl,
             name="web_search",
-            description="Cari informasi terbaru di web dan kembalikan ringkasan hasil.",
+            description=(
+                "Cari informasi terbaru di web dan kembalikan ringkasan hasil. "
+                "Pakai ini kalau pengguna tanya hal faktual/terkini yang kamu "
+                "nggak yakin, BUKAN untuk hal yang sudah kamu ingat tentang dia."
+            ),
             args_schema=WebSearchInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_remember_impl,
+            name="remember",
+            description=(
+                "Simpan fakta permanen tentang pengguna (nama, ulang tahun, "
+                "kota, pekerjaan, kesukaan, perangkat). Dipakai kalau pengguna "
+                "minta diingat atau menyampaikan fakta diri yang layak disimpan."
+            ),
+            args_schema=RememberInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_recall_impl,
+            name="recall_memory",
+            description=(
+                "Lihat kembali hal-hal yang kamu ingat tentang pengguna. "
+                "Opsional kasih kata kunci buat nyari ingatan tertentu."
+            ),
+            args_schema=RecallMemoryInput,
         ),
         StructuredTool.from_function(
             coroutine=_schedule_impl,

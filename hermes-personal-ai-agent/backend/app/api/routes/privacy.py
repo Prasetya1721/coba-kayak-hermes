@@ -27,6 +27,7 @@ from app.schemas import (
     ProfileResponse,
     TemplateResponse,
 )
+from app.services.memory_service import MemoryService
 
 router = APIRouter(prefix="/privacy", tags=["privacy"])
 
@@ -74,10 +75,11 @@ async def delete_all_data(
     await NotificationRepository(db).delete_by_user(user.id)
     await TemplateRepository(db).delete_by_user(user.id)
     await CredentialRepository(db).delete_by_user(user.id)
+    await MemoryService(db).delete_by_user(user.id)
     await db.commit()
     return DeleteDataResponse(
         deleted=True,
-        detail="Semua riwayat chat, template, notifikasi, dan kredensial telah dihapus.",
+        detail="Semua riwayat chat, template, notifikasi, kredensial, dan ingatan telah dihapus.",
     )
 
 

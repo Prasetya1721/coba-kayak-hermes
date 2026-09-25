@@ -9,6 +9,7 @@ import type {
   ChatResponse,
   ChatSession,
   Credential,
+  MemoryItem,
   Notification,
   OnboardingStatus,
   Profile,
@@ -218,6 +219,18 @@ export const api = {
 
   deleteNotification: (id: string) =>
     rawRequest<void>(`/api/notifications/${id}`, { method: "DELETE" }),
+
+  // --- memories ---
+  listMemories: () => rawRequest<MemoryItem[]>("/api/memories"),
+
+  createMemory: (body: { key: string; value: string }) =>
+    rawRequest<MemoryItem>("/api/memories", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  deleteMemory: (id: string) =>
+    rawRequest<void>(`/api/memories/${id}`, { method: "DELETE" }),
 
   // --- credentials ---
   listCredentials: () => rawRequest<Credential[]>("/api/credentials"),
