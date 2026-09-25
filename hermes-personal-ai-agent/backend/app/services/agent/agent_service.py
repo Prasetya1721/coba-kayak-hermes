@@ -119,6 +119,26 @@ class SessionNotFoundError(ValueError):
     """Raised when a requested chat session does not belong to the user."""
 
 
+class LLMCallError(RuntimeError):
+    """Raised when the model/gateway rejects or fails a request."""
+
+
+def _friendly_llm_error(raw: str) -> str:
+    """Turn a provider error string into a short, human explanation."""
+    text = (raw or "").lower()
+    if "403" in text or "authentication" in text or "permission" in text:
+        return "API key model ditolak/kuota habis (403)."
+    if "404" in text or "model_not_found" in text or "not found" in text:
+        return "Model yang diset tidak tersedia di gateway (404)."
+    if "401" in text or "invalid_api_key" in text:
+        return "API key model tidak valid (401)."
+    if "429" in text or "rate limit" in text:
+        return "Kena rate limit model (429). Coba lagi sebentar."
+    if "timeout" in text or "timed out" in text:
+        return "Model tidak merespons tepat waktu (timeout)."
+    return raw[:160]
+
+
 @dataclass
 class AgentResult:
     reply: str
@@ -245,7 +265,21 @@ class AgentService:
                     detections=scrub.detections,
                 )
             else:
-                result = await self._run_agent(history, memory_block, summary_block)
+                try:
+                    result = await self._run_agent(
+                        history, memory_block, summary_block
+                    )
+                except LLMCallError as exc:
+                    log.warning("llm_turn_failed", error=str(exc)[:200])
+                    result = AgentResult(
+                        reply=(
+                            "Aduh, model AI-nya lagi nggak bisa dihubungi nih 🙏\n"
+                            f"Detail: {_friendly_llm_error(str(exc))}\n\n"
+                            "Coba cek kuota/API key di dashboard penyedia model, "
+                            "atau ganti model di .env (OPENAI_MODEL), lalu restart. "
+                            "Pesanmu tadi nggak hilang kok."
+                        )
+                    )
         finally:
             set_credential_resolver(None)
             set_memory_service(None)
@@ -443,7 +477,11 @@ class AgentService:
 
         # Bounded agent loop (max 4 tool rounds).
         for _ in range(4):
-            ai: AIMessage = await model_with_tools.ainvoke(messages)
+            try:
+                ai: AIMessage = await model_with_tools.ainvoke(messages)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("llm_invoke_failed", error=str(exc)[:300])
+                raise LLMCallError(str(exc)[:300]) from exc
             messages.append(ai)
 
             calls = getattr(ai, "tool_calls", None) or []

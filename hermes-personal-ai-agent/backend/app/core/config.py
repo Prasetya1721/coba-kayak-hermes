@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-3-5-sonnet-latest"
     llm_temperature: float = 0.2
     short_term_memory_size: int = 10
+    # Bounds so a flaky gateway fails fast instead of hanging the webhook.
+    llm_request_timeout: int = 60
+    llm_max_retries: int = 1
 
     # --- Telegram ---
     telegram_bot_token: str = ""

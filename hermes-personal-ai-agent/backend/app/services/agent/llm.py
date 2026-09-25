@@ -22,6 +22,9 @@ def build_chat_model(*, streaming: bool = False) -> BaseChatModel:
             "api_key": settings.openai_api_key,
             "temperature": settings.llm_temperature,
             "streaming": streaming,
+            # Fail fast on dead gateways instead of hanging the reply.
+            "timeout": settings.llm_request_timeout,
+            "max_retries": settings.llm_max_retries,
         }
         # Custom OpenAI-compatible gateway (e.g. https://modelrouter.id/v1).
         if settings.openai_base_url:
@@ -38,6 +41,8 @@ def build_chat_model(*, streaming: bool = False) -> BaseChatModel:
             api_key=settings.anthropic_api_key,
             temperature=settings.llm_temperature,
             streaming=streaming,
+            timeout=settings.llm_request_timeout,
+            max_retries=settings.llm_max_retries,
         )
 
     raise LLMConfigError(f"LLM provider tidak dikenal: {settings.llm_provider}")
