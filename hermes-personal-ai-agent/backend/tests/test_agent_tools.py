@@ -151,6 +151,50 @@ class TestWebSearchConfig:
         assert "python.org" in results[0]["link"]
 
     @pytest.mark.asyncio
+    async def test_tavily_parses_with_answer(self, monkeypatch):
+        """Tavily path returns an answer summary plus organic results."""
+        import respx
+        from httpx import Response
+
+        from app.services.agent.tools import web_search
+
+        monkeypatch.setattr(web_search.settings, "search_provider", "tavily")
+        monkeypatch.setattr(web_search.settings, "tavily_api_key", "tvly-test")
+        payload = {
+            "answer": "Emas Rp2,6 juta per gram.",
+            "results": [
+                {"title": "Harga Emas", "url": "https://x", "content": "isi"},
+                {"title": "Lain", "url": "https://y", "content": "isi2"},
+            ],
+        }
+        with respx.mock:
+            respx.post("https://api.tavily.com/search").mock(
+                return_value=Response(200, json=payload)
+            )
+            results = await web_search.web_search("harga emas", limit=2)
+
+        assert results[0]["title"].startswith("Ringkasan:")
+        assert "Emas Rp2,6 juta" in results[0]["snippet"]
+        assert len(results) == 3  # answer + 2 organic
+
+    @pytest.mark.asyncio
+    async def test_tavily_invalid_key(self, monkeypatch):
+        """Invalid key raises a clear error (not a raw HTTP error)."""
+        import respx
+        from httpx import Response
+
+        from app.services.agent.tools import web_search
+
+        monkeypatch.setattr(web_search.settings, "search_provider", "tavily")
+        monkeypatch.setattr(web_search.settings, "tavily_api_key", "tvly-bad")
+        with respx.mock:
+            respx.post("https://api.tavily.com/search").mock(
+                return_value=Response(401, json={})
+            )
+            with pytest.raises(web_search.WebSearchError, match="tidak valid"):
+                await web_search.web_search("x", limit=1)
+
+    @pytest.mark.asyncio
     async def test_format_results_renders(self):
         from app.services.agent.tools import web_search
 

@@ -1,8 +1,8 @@
-"""Web search tool: SerpAPI, Brave Search, or free DuckDuckGo fallback.
+"""Web search tool: Tavily (recommended), SerpAPI, Brave, or DuckDuckGo.
 
-DuckDuckGo needs no API key: the Instant Answer API is tried first, then the
-lightweight html endpoint is scraped for organic results. Perfectly good for a
-personal assistant; upgrade to SerpAPI/Brave when you need higher recall.
+Priority: Tavily is purpose-built for AI agents (clean snippets + an `answer`
+summary, free 1000/month, no credit card). DuckDuckGo needs no key but is
+often blocked/rate-limited; keep it as a last resort.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ log = get_logger(__name__)
 
 _SERPAPI_URL = "https://serpapi.com/search.json"
 _BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
+_TAVILY_URL = "https://api.tavily.com/search"
 _DDG_API_URL = "https://api.duckduckgo.com/"
 _DDG_HTML_URL = "https://html.duckduckgo.com/html/"
 
@@ -29,6 +30,8 @@ class WebSearchError(RuntimeError):
 
 async def web_search(query: str, *, limit: int = 5) -> list[dict[str, str]]:
     """Return a list of {title, link, snippet} results."""
+    if settings.search_provider == "tavily" and settings.tavily_api_key:
+        return await _tavily(query, limit)
     if settings.search_provider == "serpapi" and settings.serpapi_api_key:
         return await _serpapi(query, limit)
     if settings.search_provider == "brave" and settings.brave_search_api_key:
@@ -36,9 +39,56 @@ async def web_search(query: str, *, limit: int = 5) -> list[dict[str, str]]:
     if settings.search_provider == "duckduckgo":
         return await _duckduckgo(query, limit)
     raise WebSearchError(
-        "Web search belum dikonfigurasi. Set SEARCH_PROVIDER=duckduckgo "
-        "(gratis, tanpa API key) atau serpapi/brave + API key di .env"
+        "Web search belum dikonfigurasi. Set SEARCH_PROVIDER=tavily + "
+        "TAVILY_API_KEY di .env (gratis 1000/bln, tanpa kartu kredit)"
     )
+
+
+async def _tavily(query: str, limit: int) -> list[dict[str, str]]:
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            resp = await client.post(
+                _TAVILY_URL,
+                json={
+                    "api_key": settings.tavily_api_key,
+                    "query": query,
+                    "max_results": limit,
+                    "include_answer": True,
+                    "search_depth": "basic",
+                },
+            )
+            if resp.status_code in (401, 403):
+                raise WebSearchError("TAVILY_API_KEY tidak valid.")
+            if resp.status_code == 429:
+                raise WebSearchError("Kuota Tavily habis. Coba lagi bulan depan.")
+            resp.raise_for_status()
+            data = resp.json()
+    except WebSearchError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log.warning("tavily_failed", error=str(exc))
+        raise WebSearchError(f"Pencarian gagal: {exc}") from exc
+
+    out: list[dict[str, str]] = []
+    answer = (data.get("answer") or "").strip()
+    if answer and data.get("results"):
+        first = data["results"][0]
+        out.append(
+            {
+                "title": "Ringkasan: " + query,
+                "link": first.get("url", ""),
+                "snippet": answer,
+            }
+        )
+    for item in data.get("results", [])[:limit]:
+        out.append(
+            {
+                "title": item.get("title", ""),
+                "link": item.get("url", ""),
+                "snippet": item.get("content", ""),
+            }
+        )
+    return out[: limit + 1]
 
 
 async def _serpapi(query: str, limit: int) -> list[dict[str, str]]:
