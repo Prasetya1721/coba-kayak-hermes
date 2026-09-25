@@ -235,6 +235,7 @@ Nginx mengekspos 80/443.
 
 ## Dokumentasi Lanjutan
 
-- [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — panduan pengguna (pemula).
+- [`docs/CARA_PENGGUNAAN.md`](docs/CARA_PENGGUNAAN.md) — cara penggunaan operasional (instalasi, run lokal/produksi, perawatan).
+- [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — panduan fitur untuk pengguna (pemula).
 - [`docs/API.md`](docs/API.md) — referensi API backend.
 - `backend/alembic/versions/0001_init.py` — skema database lengkap.

@@ -4,6 +4,9 @@ Selamat! Hermes adalah asisten pribadi AI yang bekerja 24/7 dan bisa dihubungi d
 **Telegram** atau **WhatsApp**. Panduan ini ramah pemula: ikuti langkahnya dan Anda
 bisa mulai dalam waktu kurang dari 10 menit.
 
+> Untuk instalasi dan menjalankan aplikasi, lihat
+> [`CARA_PENGGUNAAN.md`](CARA_PENGGUNAAN.md).
+
 ---
 
 ## 1. Kenalan dengan Hermes
