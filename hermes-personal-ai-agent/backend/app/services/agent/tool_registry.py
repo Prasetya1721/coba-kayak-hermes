@@ -48,13 +48,24 @@ class SSHInput(BaseModel):
 
 
 class GithubInput(BaseModel):
-    action: str = Field(description="Salah satu: get_repo | push_file | list_workflows")
-    owner: str
-    repo: str
-    path: str | None = Field(default=None, description="Untuk push_file.")
+    action: str = Field(
+        description=(
+            "Salah satu: get_repo | list_files | read_file | search_code | list_commits "
+            "| list_workflows | push_file"
+        )
+    )
+    repo: str = Field(
+        description="'owner/repo' atau URL GitHub lengkap (mis. https://github.com/owner/repo)."
+    )
+    path: str | None = Field(
+        default=None, description="Path file/folder untuk list_files/read_file/push_file."
+    )
+    query: str | None = Field(default=None, description="Kata kunci untuk search_code.")
     content: str | None = Field(default=None, description="Isi file untuk push_file.")
     message: str | None = Field(default=None, description="Pesan commit untuk push_file.")
-    branch: str | None = None
+    branch: str | None = Field(
+        default=None, description="Branch (default: branch utama repo)."
+    )
 
 
 class VercelInput(BaseModel):
@@ -184,6 +195,39 @@ def _current_credential_resolver() -> _CredentialResolver | None:
     return _resolver
 
 
+_TokenResolver = Callable[[], Awaitable[str]]
+_token_resolver: _TokenResolver | None = None
+
+
+def set_github_token_resolver(fn: _TokenResolver | None) -> None:
+    """Bind a per-turn resolver that returns this user's GitHub token."""
+    global _token_resolver
+    _token_resolver = fn
+
+
+async def _github_token() -> str | None:
+    """Prefer the user's stored token, else the operator env token."""
+    if _token_resolver is not None:
+        try:
+            token = await _token_resolver()
+            if token:
+                return token
+        except Exception as exc:  # noqa: BLE001
+            log_github_resolver_error(exc)
+    return settings.github_token or None
+
+
+def log_github_resolver_error(exc: Exception) -> None:
+    from app.core.logging import get_logger
+
+    get_logger(__name__).warning("github_token_resolver_failed", error=str(exc))
+
+
+def github_tool_available() -> bool:
+    """The tool is always exposed; it explains what to do if no token exists."""
+    return True
+
+
 _MemorySaver = Callable[[str, str], Awaitable[dict]]
 _MemoryLister = Callable[[], Awaitable[list]]
 _memory_saver: _MemorySaver | None = None
@@ -279,34 +323,67 @@ async def _run_code_impl(language: str, code: str) -> str:
 
 async def _github_impl(
     action: str,
-    owner: str,
     repo: str,
     path: str | None = None,
+    query: str | None = None,
     content: str | None = None,
     message: str | None = None,
     branch: str | None = None,
 ) -> str:
     try:
+        token = await _github_token()
+        if not token:
+            return (
+                "GitHub belum tersambung: belum ada token. Minta pengguna menyimpan "
+                "token GitHub (Personal Access Token, scope 'repo') lewat halaman "
+                "Onboarding/dashboard (service_name: github_token), atau set "
+                "GITHUB_TOKEN di .env."
+            )
+        owner, name = web_management.parse_repo(repo)
         if action == "get_repo":
-            data = await web_management.github_get_repo(owner, repo)
+            data = await web_management.github_get_repo(owner, name, token=token)
+        elif action == "list_files":
+            data = await web_management.github_list_files(
+                owner, name, path or "", branch=branch, token=token
+            )
+        elif action == "read_file":
+            if not path:
+                return "read_file butuh 'path' file."
+            data = await web_management.github_read_file(
+                owner, name, path, branch=branch, token=token
+            )
+        elif action == "search_code":
+            if not query:
+                return "search_code butuh 'query'."
+            data = await web_management.github_search_code(
+                owner, name, query, token=token
+            )
+        elif action == "list_commits":
+            data = await web_management.github_list_commits(
+                owner, name, branch=branch, token=token
+            )
         elif action == "list_workflows":
-            data = await web_management.github_list_workflows(owner, repo)
+            data = await web_management.github_list_workflows(owner, name, token=token)
         elif action == "push_file":
             if not (path and content and message):
-                return "push_file membutuhkan path, content, dan message."
+                return "push_file butuh path, content, dan message."
             data = await web_management.github_push_file(
                 owner=owner,
-                repo=repo,
+                repo=name,
                 path=path,
                 content=content,
                 message=message,
                 branch=branch,
+                token=token,
             )
         else:
             return f"Aksi tidak dikenal: {action}"
     except web_management.WebManagementError as exc:
         return f"GitHub error: {exc}"
-    return json.dumps(data, ensure_ascii=False)
+    result = json.dumps(data, ensure_ascii=False)
+    # GitHub read_file content can be large; keep tool output bounded.
+    limit = settings.repo_max_output_chars if hasattr(settings, "repo_max_output_chars") else 12000
+    return result[:limit] if len(result) > limit else result
 
 
 async def _vercel_impl(action: str, project: str, ref: str | None = "main") -> str:
@@ -446,15 +523,21 @@ def build_agent_tools() -> list[StructuredTool]:
         ),
     ]
 
-    if settings.github_token:
-        tools.append(
-            StructuredTool.from_function(
-                coroutine=_github_impl,
-                name="manage_github",
-                description="Kelola repository GitHub: get_repo, list_workflows, push_file.",
-                args_schema=GithubInput,
-            )
+    # Always expose GitHub tooling: it can read from the per-user token store,
+    # and gives a clear "connect a token first" message when none exists.
+    tools.append(
+        StructuredTool.from_function(
+            coroutine=_github_impl,
+            name="manage_github",
+            description=(
+                "Baca & kelola repo GitHub secara LANGSUNG (bukan web search): "
+                "get_repo (info), list_files (isi folder), read_file (isi file), "
+                "search_code (cari kode), list_commits (riwayat), list_workflows "
+                "(CI), push_file (tulis/commit). Terima 'owner/repo' atau URL."
+            ),
+            args_schema=GithubInput,
         )
+    )
 
     if settings.vercel_token:
         tools.append(

@@ -38,6 +38,7 @@ from app.services.agent.llm import build_chat_model, llm_is_configured
 from app.services.agent.tool_registry import (
     build_agent_tools,
     set_credential_resolver,
+    set_github_token_resolver,
     set_memory_service,
 )
 from app.services.memory_service import MemoryService
@@ -220,7 +221,17 @@ class AgentService:
 
         if credential_resolver is not None:
             set_credential_resolver(credential_resolver)
+
+        async def _resolve_github_token() -> str:
+            if credential_resolver is not None:
+                try:
+                    return await credential_resolver("github_token")
+                except Exception:  # noqa: BLE001
+                    return ""
+            return ""
+
         set_memory_service(self.memory, user_id)
+        set_github_token_resolver(_resolve_github_token)
         try:
             if memory_note is not None:
                 result = AgentResult(reply=memory_note)
@@ -238,6 +249,7 @@ class AgentService:
         finally:
             set_credential_resolver(None)
             set_memory_service(None)
+            set_github_token_resolver(None)
 
         await self.logs.append(session_row.id, "assistant", result.reply)
 
