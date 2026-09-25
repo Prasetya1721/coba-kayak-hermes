@@ -84,3 +84,15 @@ export interface MemoryItem {
   scope: string;
   updated_at: string | null;
 }
+
+export interface ModelInfo {
+  model: string;
+  active: boolean;
+  cooldown_seconds: number;
+}
+
+export interface ModelListResponse {
+  active: string;
+  provider: string;
+  models: ModelInfo[];
+}

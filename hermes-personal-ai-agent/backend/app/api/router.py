@@ -9,6 +9,7 @@ from app.api.routes import (
     chat,
     credentials,
     memories,
+    models,
     notifications,
     onboarding,
     privacy,
@@ -23,6 +24,7 @@ api_router.include_router(templates.router)
 api_router.include_router(notifications.router)
 api_router.include_router(credentials.router)
 api_router.include_router(memories.router)
+api_router.include_router(models.router)
 api_router.include_router(privacy.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(webhooks.router)

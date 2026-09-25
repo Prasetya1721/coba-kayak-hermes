@@ -7,6 +7,7 @@ import {
   Bell,
   Bot,
   Brain,
+  Cpu,
   History,
   LayoutDashboard,
   FileCode2,
@@ -26,6 +27,7 @@ const NAV = [
   { href: "/dashboard/memory", label: "Ingatan", icon: Brain },
   { href: "/dashboard/templates", label: "Template", icon: FileCode2 },
   { href: "/dashboard/notifications", label: "Notifikasi", icon: Bell },
+  { href: "/dashboard/models", label: "Model AI", icon: Cpu },
   { href: "/dashboard/onboarding", label: "Onboarding", icon: Sparkles },
   { href: "/dashboard/privacy", label: "Privasi", icon: ShieldCheck },
 ];

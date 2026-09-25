@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     # Bounds so a flaky gateway fails fast instead of hanging the webhook.
     llm_request_timeout: int = 60
     llm_max_retries: int = 1
+    # Fallback chain: comma-separated models tried in order when the active
+    # one hits limit/403/404/timeout. The active model is OPENAI_MODEL; the
+    # rest of the chain are the alternatives. Example:
+    #   LLM_MODEL_FALLBACKS=mr-vip,deepseek-v4.1-flash,nemotron-3-ultra
+    llm_model_fallbacks: str = ""
+    # Temporarily skip a model after it fails this many times (seconds).
+    llm_cooldown_seconds: int = 180
 
     # --- Telegram ---
     telegram_bot_token: str = ""
@@ -179,6 +186,16 @@ class Settings(BaseSettings):
             if r:
                 roots.append(os.path.abspath(os.path.expandvars(r)))
         return roots
+
+    @property
+    def llm_model_chain(self) -> list[str]:
+        """Active model first, then fallbacks (deduped, in order)."""
+        chain: list[str] = []
+        for m in [self.openai_model, *self.llm_model_fallbacks.split(",")]:
+            m = (m or "").strip()
+            if m and m not in chain:
+                chain.append(m)
+        return chain
 
     @property
     def code_exec_languages_list(self) -> list[str]:

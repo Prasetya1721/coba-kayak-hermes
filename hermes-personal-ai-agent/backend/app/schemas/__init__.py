@@ -216,3 +216,19 @@ class MemoryResponse(BaseModel):
 class ErrorResponse(BaseModel):
     detail: str
     request_id: str | None = None
+
+
+class ModelInfo(BaseModel):
+    model: str
+    active: bool
+    cooldown_seconds: int = 0
+
+
+class ModelListResponse(BaseModel):
+    active: str
+    provider: str
+    models: list[ModelInfo]
+
+
+class ModelSwitchRequest(BaseModel):
+    model: str = Field(min_length=1, max_length=100)

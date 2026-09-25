@@ -34,7 +34,13 @@ from app.db.models import ChatSession
 from app.middleware.scrubbing import scrub_text_detailed
 from app.repositories.chat import ChatLogRepository, ChatSessionRepository
 from app.repositories.templates import NotificationRepository
-from app.services.agent.llm import build_chat_model, llm_is_configured
+from app.services.agent.llm import (
+    active_model,
+    build_chat_model_for,
+    is_retryable_error,
+    llm_is_configured,
+    mark_model_failed,
+)
 from app.services.agent.tool_registry import (
     build_agent_tools,
     set_credential_resolver,
@@ -430,13 +436,7 @@ class AgentService:
             return
         prompt = self.memory.build_summary_prompt(old)
         try:
-            model = build_chat_model()
-            summary_msg = await model.ainvoke([HumanMessage(content=prompt)])
-            summary = (
-                summary_msg.content
-                if isinstance(summary_msg.content, str)
-                else str(summary_msg.content)
-            )
+            summary = await self._invoke_with_failover(prompt)
         except Exception as exc:  # noqa: BLE001
             log.warning("summary_llm_failed", error=str(exc))
             return
@@ -449,14 +449,63 @@ class AgentService:
         except Exception as exc:  # noqa: BLE001
             log.warning("summary_save_failed", error=str(exc))
 
+    async def _invoke_with_failover(self, prompt: str) -> str:
+        """Single-shot LLM call with the same model failover chain."""
+        chain = settings.llm_model_chain or [settings.openai_model]
+        active = active_model()
+        ordered = [active] + [m for m in chain if m != active]
+        last_error: Exception | None = None
+        for model_name in ordered:
+            try:
+                model = build_chat_model_for(model_name)
+                msg = await model.ainvoke([HumanMessage(content=prompt)])
+                return msg.content if isinstance(msg.content, str) else str(msg.content)
+            except Exception as exc:  # noqa: BLE001
+                if is_retryable_error(exc):
+                    mark_model_failed(model_name)
+                    last_error = exc
+                    continue
+                raise
+        raise last_error or LLMCallError("Semua model gagal dihubungi.")
+
     async def _run_agent(
         self,
         history: list[dict[str, str]],
         memory_block: str = "",
         summary_block: str = "",
     ) -> AgentResult:
+        """Run the tool-calling loop, failing over across models on quota errors."""
+        chain = settings.llm_model_chain or [settings.openai_model]
+        # Put the currently active (non-cooling) model first.
+        active = active_model()
+        ordered = [active] + [m for m in chain if m != active]
+
+        last_error: Exception | None = None
+        for model_name in ordered:
+            model = build_chat_model_for(model_name)
+            try:
+                return await self._run_agent_with_model(
+                    model, history, memory_block, summary_block
+                )
+            except LLMCallError as exc:
+                if is_retryable_error(exc):
+                    mark_model_failed(model_name)
+                    log.warning(
+                        "llm_failover", failed_model=model_name, error=str(exc)[:160]
+                    )
+                    last_error = exc
+                    continue
+                raise
+        raise last_error or LLMCallError("Semua model gagal dihubungi.")
+
+    async def _run_agent_with_model(
+        self,
+        model,
+        history: list[dict[str, str]],
+        memory_block: str = "",
+        summary_block: str = "",
+    ) -> AgentResult:
         tools = build_agent_tools()
-        model = build_chat_model()
         model_with_tools = model.bind_tools(tools) if tools else model
         tool_map = {t.name: t for t in tools}
 

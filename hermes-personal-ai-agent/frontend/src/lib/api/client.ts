@@ -10,6 +10,7 @@ import type {
   ChatSession,
   Credential,
   MemoryItem,
+  ModelListResponse,
   Notification,
   OnboardingStatus,
   Profile,
@@ -243,6 +244,18 @@ export const api = {
 
   deleteCredential: (serviceName: string) =>
     rawRequest<void>(`/api/credentials/${serviceName}`, { method: "DELETE" }),
+
+  // --- models ---
+  listModels: () => rawRequest<ModelListResponse>("/api/models"),
+
+  switchModel: (model: string) =>
+    rawRequest<ModelListResponse>("/api/models/switch", {
+      method: "POST",
+      body: JSON.stringify({ model }),
+    }),
+
+  resetModels: () =>
+    rawRequest<ModelListResponse>("/api/models/reset", { method: "POST" }),
 
   // --- onboarding ---
   onboardingStatus: () => rawRequest<OnboardingStatus>("/api/onboarding/status"),
