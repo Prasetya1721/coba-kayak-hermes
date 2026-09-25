@@ -103,6 +103,36 @@ class Settings(BaseSettings):
     def _strip_origins(cls, v: str) -> str:
         return v.strip()
 
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_db_url(cls, v: str) -> str:
+        """Accept plain Postgres URLs (e.g. Neon/Heroku) and make them asyncpg-ready.
+
+        - `postgres://` and `postgresql://` get the `+asyncpg` driver.
+        - `sslmode=require` (libpq) is rewritten to `ssl=require` (asyncpg).
+        - `channel_binding=*` (psycopg-only, e.g. from Neon CLI) is dropped
+          because asyncpg does not accept it.
+        """
+        from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+        url = (v or "").strip()
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://") :]
+        if url.startswith("postgresql://"):
+            url = "postgresql+asyncpg://" + url[len("postgresql://") :]
+
+        parts = urlsplit(url)
+        if parts.query:
+            params = [
+                ("ssl" if k == "sslmode" else k, vv)
+                for k, vv in parse_qsl(parts.query, keep_blank_values=True)
+                if k != "channel_binding"
+            ]
+            url = urlunsplit(
+                (parts.scheme, parts.netloc, parts.path, urlencode(params), parts.fragment)
+            )
+        return url
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
