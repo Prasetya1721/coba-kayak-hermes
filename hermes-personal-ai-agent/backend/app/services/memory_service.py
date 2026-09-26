@@ -64,8 +64,9 @@ _FACT_PATTERNS: list[tuple[str, re.Pattern]] = [
     # perangkat
     ("perangkat", re.compile(r"(?i)\b(?:server|vps|komputer|laptop|hp)\s+(?:ku|saya|aku|gue|gw)\s*(?:di|ip|dengan|adalah|bernama)?\s*([\w.\-:]{3,80})")),
     # konteks proyek: "lagi ngerjain proyek PMS", "projectku namanya X",
-    # "repo PMS di ..." — scope proyek:<nama>
-    ("proyek", re.compile(r"(?i)\bproyek(?:ku| saya)?\s+(?:namanya|bernama|itu)?\s*([A-Za-z0-9][A-Za-z0-9_\-]{1,29})")),
+    # "repo PMS di ..." — scope proyek:<nama>. Kata umum ("dong", "itu", "ini")
+    # tidak dianggap nama proyek.
+    ("proyek", re.compile(r"(?i)\bproyek(?:ku| saya)?\s+(?:namanya|bernama|itu|yang\s+berjudul)?\s*([A-Za-z0-9][A-Za-z0-9_\-]{1,29})")),
     ("proyek", re.compile(r"(?i)\bproject(?:ku| saya)?\s+(?:namanya|bernama|itu|called)?\s*([A-Za-z0-9][A-Za-z0-9_\-]{1,29})")),
     ("proyek", re.compile(r"(?i)\blagi\s+(?:ngerjain|garap|kerjain)\s+(?:proyek|project)\s+([A-Za-z0-9][A-Za-z0-9_\-]{1,29})")),
     ("proyek", re.compile(r"(?i)\brepo(?:ku|saya)?\s+(?:di|ada\s+di|namanya)?\s*([A-Za-z0-9 _\-\/\.]{2,80})")),
@@ -116,6 +117,18 @@ def infer_scope(key: str, value: str) -> str:
     return "global"
 
 
+# Filler/panggilan yang bukan bagian dari fakta. Harus kata utuh (didahului
+# spasi) supaya "semuanya" tidak terpotong jadi "semuan".
+_FILLER_TAIL = re.compile(
+    r"(?i)(?<=\s),?\s*(dong|ya|yaa|nih|sih|deh|kok|lah|kah|kan|please|plis|tolong)\s*$"
+)
+# Nilai yang terlalu umum untuk dijadikan ingatan.
+_STOPWORDS = {
+    "", "dong", "ya", "oke", "ok", "iya", "hai", "halo", "tes", "test",
+    "hi", "hey", "siap", "sip", "mantap", "thanks", "makasih",
+}
+
+
 def _clean(value: str) -> str:
     value = value.strip().strip(".,!?\"'").strip()
     # Cut trailing clauses: "Prasetya dan aku suka kopi" -> "Prasetya"
@@ -124,7 +137,15 @@ def _clean(value: str) -> str:
         if idx > 0:
             value = value[:idx].strip()
             break
+    # Drop trailing fillers: "PMS testing dong" -> "PMS testing"
+    value = _FILLER_TAIL.sub("", value).strip()
     return value[:200]
+
+
+def is_junk_value(value: str) -> bool:
+    """True when a value is too short/generic to be a useful memory."""
+    v = _clean(value).lower()
+    return v in _STOPWORDS or len(v) < 2
 
 
 class MemoryService:
@@ -164,6 +185,10 @@ class MemoryService:
         value = _clean(value)
         if not value:
             raise ValueError("Nilai ingatan kosong.")
+        if is_junk_value(value):
+            raise ValueError(
+                f"Nilai '{value}' terlalu umum untuk disimpan sebagai ingatan."
+            )
         key = key.strip().lower()[:50] or "catatan"
         scope = scope or infer_scope(key, value)
 
@@ -230,6 +255,25 @@ class MemoryService:
         )
         await self.session.flush()
         return result.rowcount or 0
+
+    async def delete_matching(self, user_id: uuid.UUID, keyword: str) -> int:
+        """Delete memories whose key, value, or scope mentions `keyword`."""
+        kw = (keyword or "").strip().lower()
+        if not kw:
+            return 0
+        removed = 0
+        for m in await self.list(user_id):
+            haystack = (
+                f"{m['key']} {m['value']} {m.get('scope', '')}".lower()
+                .replace(":", " ")
+                .replace("_", " ")
+            )
+            if kw in haystack:
+                mid = m["id"]
+                mid = uuid.UUID(mid) if isinstance(mid, str) else mid
+                if await self.delete(user_id, mid):
+                    removed += 1
+        return removed
 
     async def scopes(self, user_id: uuid.UUID) -> list[str]:
         """Distinct scopes the user has memories in."""
@@ -304,13 +348,13 @@ class MemoryService:
         return None
 
     def extract_facts(self, user_text: str) -> list[tuple[str, str]]:
-        """Heuristic fact extraction from one user message."""
+        """Heuristic fact extraction from one user message (junk filtered)."""
         facts: list[tuple[str, str]] = []
         for key, pattern in _FACT_PATTERNS:
             m = pattern.search(user_text or "")
             if m:
                 value = _clean(m.group(1))
-                if value and len(value) >= 2:
+                if value and not is_junk_value(value):
                     facts.append((key, value))
         return facts
 

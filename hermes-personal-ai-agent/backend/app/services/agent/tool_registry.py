@@ -13,6 +13,7 @@ and testable).
 from __future__ import annotations
 
 import json
+import uuid
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -85,9 +86,28 @@ class ScheduleNotificationInput(BaseModel):
 
 class RememberInput(BaseModel):
     key: str = Field(
-        description="Label singkat: nama, ulang_tahun, kota, pekerjaan, preferensi, perangkat, catatan."
+        description=(
+            "Label singkat: nama, ulang_tahun, kota, pekerjaan, preferensi, "
+            "perangkat, proyek, kode, catatan."
+        )
     )
     value: str = Field(description="Fakta yang mau disimpan tentang pengguna.")
+    scope: str | None = Field(
+        default=None,
+        description=(
+            "Opsional: 'global' (default), 'kode' (preferensi coding), atau "
+            "'proyek:<nama>' (konteks proyek tertentu, mis. 'proyek:pms')."
+        ),
+    )
+
+
+class ForgetMemoryInput(BaseModel):
+    target: str = Field(
+        description=(
+            "Yang mau dilupakan: nama/isi ingatan ('dong'), key ('kota'), atau "
+            "scope ('proyek:pms', 'kode')."
+        )
+    )
 
 
 class RecallMemoryInput(BaseModel):
@@ -228,10 +248,12 @@ def github_tool_available() -> bool:
     return True
 
 
-_MemorySaver = Callable[[str, str], Awaitable[dict]]
+_MemorySaver = Callable[..., Awaitable[dict]]
 _MemoryLister = Callable[[], Awaitable[list]]
+_MemoryForgetter = Callable[[str], Awaitable[int]]
 _memory_saver: _MemorySaver | None = None
 _memory_lister: _MemoryLister | None = None
+_memory_forgetter: _MemoryForgetter | None = None
 
 
 def set_memory_service(service, user_id=None) -> None:  # noqa: ANN001, ANN002
@@ -240,28 +262,87 @@ def set_memory_service(service, user_id=None) -> None:  # noqa: ANN001, ANN002
     The user id is captured in closures, so concurrent turns for different
     users never share state through module globals.
     """
-    global _memory_saver, _memory_lister
+    global _memory_saver, _memory_lister, _memory_forgetter
     if service is None or user_id is None:
-        _memory_saver, _memory_lister = None, None
+        _memory_saver, _memory_lister, _memory_forgetter = None, None, None
         return
 
-    async def _save(key: str, value: str) -> dict:
-        return await service.save(user_id, key, value)
+    async def _save(key: str, value: str, scope: str | None = None) -> dict:
+        return await service.save(user_id, key, value, scope=scope)
 
     async def _list() -> list:
         return await service.list(user_id)
 
-    _memory_saver, _memory_lister = _save, _list
+    def _matches(target: str, key: str, value: str, scope: str) -> bool:
+        """True if any word of target appears in key/value/scope.
+
+        Word-based so "proyek pms" matches key "proyek_pms_stack" and scope
+        "proyek:pms" (both contain "pms"), without matching unrelated facts.
+        """
+        haystack = f"{key} {value} {scope}".lower().replace(":", " ").replace("_", " ")
+        words = [w for w in re_split_words(target) if len(w) >= 2]
+        if not words:
+            return False
+        return all(w in haystack for w in words)
+
+    async def _forget(target: str) -> int:
+        """Delete by exact key/scope, or by all-word match on key/value/scope."""
+        target = (target or "").strip().lower()
+        if not target:
+            return 0
+        removed = 0
+        # 1) exact scope ("proyek:pms", "kode") or exact key ("nama")
+        removed += await service.delete_by_scope(user_id, target)
+        removed += await service.delete_by_key(user_id, target)
+        # 2) word-based match across key, value, and scope
+        items = await service.list(user_id)
+        for m in items:
+            if _matches(target, m["key"], m["value"], m.get("scope", "global")):
+                mid = m["id"]
+                mid = uuid.UUID(mid) if isinstance(mid, str) else mid
+                if await service.delete(user_id, mid):
+                    removed += 1
+        return removed
+
+    _memory_saver, _memory_lister, _memory_forgetter = _save, _list, _forget
 
 
-async def _remember_impl(key: str, value: str) -> str:
+def re_split_words(text: str) -> list[str]:
+    """Split on non-alphanumeric so 'proyek pms' -> ['proyek', 'pms']."""
+    import re as _re
+
+    return [w for w in _re.split(r"[^a-z0-9]+", (text or "").lower()) if w]
+
+
+async def _remember_impl(key: str, value: str, scope: str | None = None) -> str:
     if _memory_saver is None:
         return "Penyimpanan ingatan tidak tersedia pada konteks ini."
+    clean_key = key.strip().lower()[:50] or "catatan"
+    clean_scope = (scope or "").strip()[:80] or None
+    # Guard: a scope must look like "global" | "kode" | "proyek:<name>".
+    if clean_scope and clean_scope not in ("global", "kode") and not clean_scope.startswith("proyek:"):
+        clean_scope = None
     try:
-        saved = await _memory_saver(key.strip().lower()[:50] or "catatan", value)
+        saved = await _memory_saver(clean_key, value, clean_scope)
     except Exception as exc:  # noqa: BLE001
         return f"Gagal menyimpan ingatan: {exc}"
-    return f"Oke, udah aku ingat: {saved['key']} = {saved['value']} 👍"
+    tag = "" if saved.get("scope", "global") == "global" else f" [{saved['scope']}]"
+    return f"Oke, udah aku ingat: {saved['key']}{tag} = {saved['value']} 👍"
+
+
+async def _forget_impl(target: str) -> str:
+    if _memory_forgetter is None:
+        return "Penghapusan ingatan tidak tersedia pada konteks ini."
+    try:
+        n = await _memory_forgetter(target)
+    except Exception as exc:  # noqa: BLE001
+        return f"Gagal menghapus ingatan: {exc}"
+    if n:
+        return f"Beres, {n} ingatan soal '{target}' udah aku lupain 👍"
+    return (
+        f"Hmm, aku nggak nemu ingatan soal '{target}'. "
+        "Coba cek halaman Memory di dashboard ya."
+    )
 
 
 async def _recall_impl(query: str | None = None) -> str:
@@ -457,10 +538,24 @@ def build_agent_tools() -> list[StructuredTool]:
             name="remember",
             description=(
                 "Simpan fakta permanen tentang pengguna (nama, ulang tahun, "
-                "kota, pekerjaan, kesukaan, perangkat). Dipakai kalau pengguna "
-                "minta diingat atau menyampaikan fakta diri yang layak disimpan."
+                "kota, pekerjaan, kesukaan, perangkat, proyek, preferensi kode). "
+                "Pakai 'scope' untuk konteks proyek ('proyek:pms') atau 'kode'. "
+                "Dipakai kalau pengguna minta diingat atau menyampaikan fakta "
+                "diri yang layak disimpan. Jangan simpan pesan satu kata/arti "
+                "tidak jelas — pastikan faktanya utuh."
             ),
             args_schema=RememberInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_forget_impl,
+            name="forget_memory",
+            description=(
+                "Hapus ingatan yang salah/duplikat/sudah tidak relevan. Bisa "
+                "berupa key ('kota'), isi ('dong'), atau scope ('proyek:pms'). "
+                "Pakai ini kalau pengguna minta lupakan ATAU kamu sadar ada "
+                "ingatan sampah yang perlu dibersihkan."
+            ),
+            args_schema=ForgetMemoryInput,
         ),
         StructuredTool.from_function(
             coroutine=_recall_impl,

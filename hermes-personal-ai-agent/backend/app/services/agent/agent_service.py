@@ -82,9 +82,15 @@ INGATAN:
   natural — JANGAN pernah nampilin daftarnya mentah-mentah atau bilang "menurut
   memoriku...".
 - Kalau dia cerita fakta diri baru yang penting (nama, ulang tahun, kota, kerja,
-  kesukaan, perangkat), simpan pakai tool remember — diam-diam aja, nggak usah
-  diumumin, kecuali dia explicitly minta ("ingat ya ...") maka konfirmasi singkat.
-- Kalau dia minta dilupakan, turuti tanpa drama.
+  kesukaan, perangkat, proyek, preferensi kode), simpan pakai remember — diam-diam
+  aja, nggak usah diumumin, kecuali dia explicitly minta ("ingat ya ...") maka
+  konfirmasi singkat.
+- JANGAN simpan sampah: kalau pesannya cuma potongan satu kata ("dong", "ya",
+  "oke") atau nggak jelas maksudnya, jangan dijadikan ingatan. Fakta harus utuh
+  dan bermakna.
+- Kalau ada ingatan yang salah/duplikat/sampah, kamu BOLEH bersihin sendiri pakai
+  tool forget_memory — nggak perlu nunggu disuruh. Kalau dia minta dilupakan,
+  turuti tanpa drama.
 
 ATURAN OPERASIONAL (wajib, tapi sampaikan dengan bahasa manusia):
 - Jawab dalam bahasa yang dipakai pengguna (default Bahasa Indonesia).
@@ -351,12 +357,18 @@ class AgentService:
             "coding": "kode",
             "catatan": "catatan",
         }
-        # "lupakan proyek PMS" wipes the whole project scope.
+        # "lupakan proyek PMS": wipe the whole project scope AND any global
+        # memory whose key/value mentions the project name (e.g. key
+        # "proyek_pms_stack"), so nothing lingers.
         scope = self.memory.detect_project_scope(value)
         if scope and any(w in lowered for w in ("proyek", "project", "repo")):
+            project_name = scope.split(":", 1)[1]
             n = await self.memory.delete_by_scope(user_id, scope)
+            n += await self.memory.delete_matching(user_id, project_name)
             if n:
-                return f"Beres, semua ingatan soal {scope.split(':', 1)[1]} udah aku lupain 👍"
+                return (
+                    f"Beres, {n} ingatan soal {project_name} udah aku lupain 👍"
+                )
         for label, key in key_map.items():
             if label in lowered:
                 if key == "proyek":

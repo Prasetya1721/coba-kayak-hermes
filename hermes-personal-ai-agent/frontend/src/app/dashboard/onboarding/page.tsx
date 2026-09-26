@@ -74,17 +74,38 @@ const STEPS: Step[] = [
   },
 ];
 
+const SERVICES = [
+  {
+    name: "github_token",
+    label: "GitHub Token",
+    hint: "Personal Access Token (classic), scope 'repo'. Untuk baca repo PMS.",
+  },
+  {
+    name: "ssh_key",
+    label: "SSH Password/Key",
+    hint: "Password atau private key untuk perangkat/server (dipakai tool execute_ssh).",
+  },
+  {
+    name: "webhook_secret",
+    label: "Secret Lainnya",
+    hint: "Kredensial umum (nama layanan bisa kamu sesuaikan).",
+  },
+];
+
 export default function OnboardingPage() {
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [credential, setCredential] = useState({ service_name: "webhook_secret", token: "" });
+  const [credential, setCredential] = useState({ service_name: "github_token", token: "" });
   const [saved, setSaved] = useState(false);
+  const [creds, setCreds] = useState<string[]>([]);
 
   async function load() {
     setLoading(true);
     try {
       setStatus(await api.onboardingStatus());
+      const list = await api.listCredentials();
+      setCreds(list.map((c) => c.service_name));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal memuat status onboarding.");
     } finally {
@@ -103,6 +124,8 @@ export default function OnboardingPage() {
       await api.storeCredential(credential);
       setSaved(true);
       setCredential({ ...credential, token: "" });
+      const list = await api.listCredentials();
+      setCreds(list.map((c) => c.service_name));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal menyimpan kredensial.");
     }
@@ -189,22 +212,32 @@ export default function OnboardingPage() {
             <CardContent>
               <form onSubmit={saveCredential} className="space-y-3">
                 <div className="space-y-2">
-                  <Label>Nama layanan</Label>
-                  <Input
+                  <Label>Layanan</Label>
+                  <select
                     value={credential.service_name}
                     onChange={(e) =>
                       setCredential({ ...credential, service_name: e.target.value })
                     }
-                    placeholder="github_token / telegram_webhook"
-                    required
-                  />
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    {SERVICES.map((s) => (
+                      <option key={s.name} value={s.name}>
+                        {s.label}
+                        {creds.includes(s.name) ? " ✓ tersimpan" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-muted-foreground">
+                    {SERVICES.find((s) => s.name === credential.service_name)?.hint}
+                  </p>
                 </div>
                 <div className="space-y-2">
-                  <Label>Token (disimpan terenkripsi)</Label>
+                  <Label>Token / secret (disimpan terenkripsi)</Label>
                   <Input
                     type="password"
                     value={credential.token}
                     onChange={(e) => setCredential({ ...credential, token: e.target.value })}
+                    placeholder="tempel token di sini"
                     required
                   />
                 </div>
@@ -213,7 +246,12 @@ export default function OnboardingPage() {
                 </Button>
                 {saved && (
                   <p className="text-xs text-emerald-600">
-                    Kredensial tersimpan dan dienkripsi.
+                    Kredensial tersimpan dan dienkripsi. Stella langsung bisa pakai.
+                  </p>
+                )}
+                {creds.length > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Sudah tersimpan: {creds.join(", ")}
                   </p>
                 )}
               </form>
